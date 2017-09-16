@@ -1,0 +1,188 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
+# Practical Machine Learning Course Project
+
+## **by Haim Kotler, Sep 2017** 
+
+## Basic Data Exploration and Cleaning
+
+
+First I will load the training dataset, and explore its columns:
+
+```{r cache = TRUE}
+    trainingRaw <- read.csv("pml-training.csv")    
+    str (trainingRaw)
+```
+
+As can be seen above, many of the columns contain large number of empty or NA values, and therefore are presumed not suiteable to be used as covariates. 
+
+I am constructing a new dataset, which contains only columns which are potential covariates, leaving out those that include lot of empty data (more than 10%), and those with 'chronoligal' data, such as time stamps, which probeably do not have any impact on prediction.
+
+I decided to leave the  name of the user in, as this may be significant for prediction.
+
+For cross validation I decided to split the trainig data into training (75%) and valiudation data (25%). This way I am building the model on the training data and using the validation data to test my models before implementing them on the actual given test data.
+
+```{r cache = TRUE}  
+    library(caret)
+
+    ## select possible relevant covariates
+    actCols <- 2    
+    for (i in 8:ncol(trainingRaw)){
+        nas = (length (trainingRaw[is.na(trainingRaw[i]) ,1]) + length (trainingRaw[trainingRaw[i]=="",1]))
+        if (nas < 0.1 * nrow(trainingRaw)) actCols <- c(actCols,i)
+    }    
+
+    ## split to training and validation data sets
+    set.seed(1812)
+    inTrain <- createDataPartition(y=trainingRaw$classe,p=0.75, list=FALSE)
+    training <- trainingRaw[inTrain,actCols]
+    validating <- trainingRaw[-inTrain,actCols]
+    
+    ## Columns of final training dataset
+    print(colnames(training))
+    
+```
+
+## Exploring the covariates
+
+After cleaning the data we are left with 54 covariates (including the classe column).
+
+This is still a verly large number of covariates which are difficult to handle in the more computationly intensive prediction algorithems.
+
+At this point our goal is to see if some covariates stand out (show a strong corelation to the classe), so a smaller sub group of covariates may be used for prediction.
+
+I am prsenting several faeture plots that demonstrate correlation between pairs on parametrs, and with the 'classe' parameter (displayed on these charts using differnt colours).
+
+I decided to focus first on the dumbbels readings, asuuming that, being the final objective of the excersize, it may contain the most data about the execution classe. 
+
+
+```{r cache = TRUE}
+    library(ggplot2)
+    library(caret)
+   
+featurePlot(x=training[, c("user_name","total_accel_belt","total_accel_arm","total_accel_forearm")], y = training$classe, plot="pairs")
+
+featurePlot(x=training[, c("accel_dumbbell_x","accel_dumbbell_y","accel_dumbbell_z")], y = training$classe, plot="pairs")
+
+featurePlot(x=training[, c("gyros_dumbbell_x","gyros_dumbbell_y","gyros_dumbbell_z")], y = training$classe, plot="pairs")
+
+featurePlot(x=training[, c("roll_dumbbell","pitch_dumbbell","yaw_dumbbell")], y = training$classe, plot="pairs")
+
+featurePlot(x=training[, c("roll_dumbbell","pitch_dumbbell","yaw_dumbbell")], y = training$classe, plot="pairs")
+```
+
+As can be seen on the plots the gyros and acceleration data in the X an Z direction shows some good separation between the calsses, while the Y direction is weaker. The Yaw/Pitch/Roll data does not seem to have any predictive power.
+
+Based on this I decided to draw a new plot that focuses on the X and Z gyros readings, to explore more.
+
+```{r cache = TRUE}
+    library(ggplot2)
+    library(caret)
+featurePlot(x=training[, c("gyros_dumbbell_x","gyros_belt_x","gyros_arm_x", "gyros_forearm_x", "gyros_dumbbell_z","gyros_belt_z","gyros_arm_z", "gyros_forearm_z")], y = training$classe, plot="pairs")
+
+```
+
+From this Plot it seems that the combination of "gyros_dumbbell_x","gyros_arm_x", "gyros_dumbbell_z","gyros_belt_z","gyros_arm_z" and "gyros_forearm_z" may have a good predictive quality since these readings show relatively good separation of classes.
+
+
+
+## Performing prediction using different models
+
+I am doing the prediction on the 'training' dataset according to several prdeiction models, and test it on the 'Validation' dataset.
+
+The success rate of each method is measured as number of succesfull predicted classes divided by the total number of Rows in the validatuion data set.
+
+Linear regression model - trying to use this model failed and returned errors for any selection of covariates (results not shown). This is expected since this problem does not have a linear characted, but rather a classification character.
+
+prediction with trees - I tried prediction with trees, on all covariates and a partial set of covariates (based on the covariates investigation above). In both casses the prediction success rate was weak, less than 50%, See results in a table below.
+
+Boosting - I tried gbm boosting, however couldnt make the model produce a model for any subset of covariates. This may be a computational limiation of my machine. results not shown.  
+
+Bagging - finally I tried bagging using "treebag" on all covariates. this produced a very high success rate of more than 98.6% which seems satisfatory for this problem. 
+
+
+1. Prediction with trees - all covariates 
+
+```{r cache = TRUE}
+    modRpart <- train(classe ~ . ,data =training, method="rpart")
+    predRpart <- predict(modRpart,validating)
+
+    ## calculate success rate
+    res <- data.frame(p <- predRpart, v <- validating$classe)
+    res$comp <- (res$p == res$v)
+
+    rpartPercent <- nrow(res[res$comp,])/nrow(res)
+```
+
+2. Prediction with trees - subset of covariates 
+
+```{r cache = TRUE}
+
+    modRpart1 <- train(classe ~ gyros_dumbbell_x + 
+                           gyros_arm_x + gyros_dumbbell_z + gyros_belt_z + 
+                           gyros_arm_z + gyros_forearm_z ,data =training, method="rpart")
+    predRpart1 <- predict(modRpart1,validating)
+
+    res <- data.frame(p <- predRpart1, v <- validating$classe)
+    res$comp <- (res$p == res$v)
+
+    rpartPercent1 <- nrow(res[res$comp,])/nrow(res)
+
+```
+
+3. Boosting - reamrked, does not converge to a solution
+```{r message= FALSE, cache = TRUE, warning= FALSE}
+ 
+     # modGbm <- train(classe ~ gyros_dumbbell_x + gyros_arm_x + 
+     #   gyros_dumbbell_z + gyros_belt_z + gyros_arm_z + gyros_forearm_z ,             
+     #    data=training[sample.int(nrow(training),10000),], method="gbm", verbose=FALSE )
+     # predGbm <- predict(modGbm,validating)
+     # 
+     # res <- data.frame(p <- predGbm, v <- validating$classe)
+     # res$comp <- (res$p == res$v)
+     # 
+     # gbmPercent <- nrow(res[res$comp,])/nrow(res)
+     # print (gbmPercent)
+```
+
+4. Bagging - all covariates
+```{r message= FALSE, cache = TRUE, warning= FALSE}
+ 
+    modBag <- train(classe ~ . ,data =training, method="treebag")
+    predBag <- predict(modBag,validating)
+
+    res <- data.frame(p <- predBag, v <- validating$classe)
+    res$comp <- (res$p == res$v)
+
+    bagPercent <- nrow(res[res$comp,])/nrow(res)
+```
+
+Display cuccess rates of all methods
+
+```{r cache = TRUE}
+    successM<- data.frame(c("trees - all", "trees - partial",  "bagging"), 
+                   c(rpartPercent, rpartPercent1, bagPercent))
+    colnames(successM) <- c("Model", "Success rate")
+    print(successM)
+```
+
+
+
+## predicting the test dataset
+
+As explained before, I am using the bagging model, since it seems to have the highest success rate on the validation data.
+
+Following are the results of calsse prediction on the test dataset:
+```{r cache = TRUE}
+    testing <- read.csv("pml-testing.csv")
+    predtest <- predict(modBag,testing)
+    
+    data.frame(row_num <- testing$X, predicted_classe <- predtest)
+```
+
+According to the 'Course Project Prediction Quiz' this prediction is 100% correct!
+
+---
