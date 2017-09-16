@@ -1,2 +1,3 @@
 # MachineLearningPGA
-Course 8 peer graded assignment
+Coursera Data Science Specializtion by Johns Hopkins Uni
+Course 8, Machine Learning - peer graded assignment
